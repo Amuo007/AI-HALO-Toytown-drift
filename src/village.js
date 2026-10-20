@@ -202,7 +202,54 @@ export function generateWorld(seed = 1) {
 
   const spawn = { x: 0, z: -40, heading: 0 };
 
-  return { roads, props, houses, scenery, collectibles, boxes, windmill, hill, stream, watermill, spawn, ROAD_LINES, VILLAGE_R };
+  // ---- stunt park (toy-kit track pieces) at the village edge ----
+  const park = buildPark();
+  for (const c of park.collectibles) collectibles.push(c);
+
+  return { roads, props, houses, scenery, collectibles, boxes, windmill, hill, stream, watermill, spawn, park, ROAD_LINES, VILLAGE_R };
+}
+
+// Track circuit built from toy-kit road-wide pieces. Toy scale K=2: straight = 8.8 long, 4 wide, surface y=0.6.
+// Piece local frames: straight spans z -0.2..4.2 (entry at -z, facing +z); curve enters facing +z at (0,-0.2),
+// exits facing -x at (-3,3). rotY: N=0, E=PI/2, S=PI, W=-PI/2.
+export function buildPark() {
+  const pieces = [];
+  const E = Math.PI / 2, W = -Math.PI / 2, N = 0, S = Math.PI;
+  const add = (model, x, z, rot) => pieces.push({ model, x, z, rot, y: 0 });
+  const STR = 8.8;
+
+  // bottom straight (east), z=100, covers x -44.4..-9.2
+  for (let i = 0; i < 4; i++) add('track-road-wide-straight', -44 + i * STR, 100, E);
+  add('track-road-wide-curve', -8.8, 100, E);                       // exit (-2.8,106) facing N
+  add('track-road-wide-straight', -2.8, 106, N);
+  add('track-road-wide-straight', -2.8, 114.8, N);
+  add('track-road-wide-straight', -2.8, 123.6, N);                  // ends z=132
+  add('track-road-wide-curve', -2.8, 132.4, N);                     // exit (-8.8,138.4) facing W
+  add('track-road-wide-straight-hill-beginning', -8.8, 138.4, W);
+  add('track-road-wide-straight-hill-complete', -17.6, 138.4, W);
+  add('track-road-wide-straight-hill-end', -26.4, 138.4, W);
+  add('track-road-wide-straight', -35.2, 138.4, W);                 // ends x=-43.6
+  add('track-road-wide-curve', -44, 138.4, W);                      // exit (-50,132.4) facing S
+  add('track-road-wide-straight-bump-up', -50, 132.4, S);
+  add('track-road-wide-straight-bump-down', -50, 123.6, S);
+  add('track-road-wide-straight', -50, 114.8, S);
+  add('track-road-wide-straight-bend', -50, 106, S);                 // big launch ramp
+  add('track-road-wide-curve', -50, 105.2, S);                       // exit (-44,99.2) facing E
+  // loop spectacle on a spur
+  add('track-road-narrow-straight', -20, 104, N);
+  add('track-road-narrow-looping', -20, 116.4, N);
+  const gates = {
+    start: { x: -40, z: 100, rot: E },
+    finish: { x: -14, z: 100, rot: E },
+  };
+  const collectibles = [];
+  for (let x = -36; x <= -12; x += 6) collectibles.push({ type: 'gold', x, z: 100 });
+  for (let z = 110; z <= 128; z += 6) collectibles.push({ type: 'silver', x: -2.8, z });
+  for (let x = -36; x <= -12; x += 6) collectibles.push({ type: 'bronze', x, z: 138.4 });
+  collectibles.push({ type: 'box', x: -22, z: 138.4 }, { type: 'box', x: -50, z: 118 });
+  collectibles.push({ type: 'banana', x: -30, z: 100 }, { type: 'banana', x: -50, z: 128 });
+  const rect = { x0: -64, x1: 12, z0: 92, z1: 150 };
+  return { pieces, gates, collectibles, rect };
 }
 
 // Terrain height (analytic, used for the ground mesh and for flatness checks).
@@ -221,6 +268,11 @@ export function terrainHeight(x, z, layout) {
       const k = Math.min(1, Math.max(0, (sd - 4) / 10));
       h = h * k - (1 - k) * 0.9;
     }
+  }
+  // flatten the stunt park ground
+  if (layout.park) {
+    const r = layout.park.rect;
+    if (x > r.x0 - 10 && x < r.x1 + 10 && z > r.z0 - 10 && z < r.z1 + 10) h = 0;
   }
   return h;
 }

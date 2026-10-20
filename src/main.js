@@ -4,6 +4,9 @@ import { VEHICLES, createCarState, stepCar, resolveCollisions } from './car.js';
 import { sampleInput } from './input.js';
 import { generateWorld } from './village.js';
 import { buildWorld } from './world.js';
+import { buildCollectibles } from './entities.js';
+import { createHUD } from './hud.js';
+import { createItemState, checkPickups, createTrial, stepTrial } from './collectibles.js';
 
 const params = new URLSearchParams(location.search);
 const demo = params.get('demo') === '1';
@@ -47,11 +50,18 @@ scene.add(ground);
 // --- world ---
 const layout = generateWorld(7);
 let world = null;
-buildWorld(scene, layout).then(w => {
+const items = createItemState(layout.collectibles);
+const trial = createTrial();
+try { trial.best = parseFloat(localStorage.getItem('toytown-best')) || null; } catch (e) {}
+let collectibles = null;
+const hud = createHUD(layout);
+let coinCount = 0;
+buildWorld(scene, layout).then(async w => {
   world = w;
   groundMeshes.length = 0;
   groundMeshes.push(...w.groundMeshes);
   colliders.push(...w.colliders);
+  collectibles = await buildCollectibles(scene, items);
 });
 
 // --- car ---
@@ -110,6 +120,11 @@ function updateCamera(dt) {
     camera.lookAt(layout.stream.x, 2, layout.watermill.z);
     return;
   }
+  if (demo && demoView === 'park') {
+    camera.position.set(-26, 70, 118);
+    camera.lookAt(-26, 0, 118);
+    return;
+  }
   if (!carObj) return;
   if (orbitMode) {
     orbitAngle += dt * 0.4;
@@ -128,8 +143,27 @@ function animate() {
   requestAnimationFrame(animate);
   const dt = Math.min(clock.getDelta(), 0.05);
   const inp = sampleInput();
+  const prev = { x: carState.x, z: carState.z };
   stepCar(carState, stats, inp, dt, groundHeight);
   resolveCollisions(carState, 0.9, colliders);
+
+  // collectibles
+  if (collectibles) {
+    for (const ev of checkPickups(carState, items)) {
+      if (ev.type === 'coin' || ev.type === 'box') { coinCount += ev.points; hud.showBanner('+' + ev.points); }
+      if (ev.type === 'banana') { carState.spinout = 1.1; hud.showBanner('BANANA!'); }
+    }
+    collectibles.update(clock.elapsedTime);
+  }
+  // time trial
+  if (layout.park) {
+    const ev = stepTrial(trial, carState, prev, layout.park.gates, dt);
+    if (ev === 'start') hud.showBanner('GO!', 900);
+    if (ev === 'finish') {
+      hud.showBanner('FINISH! ' + trial.best.toFixed(2) + 's');
+      try { localStorage.setItem('toytown-best', String(trial.best)); } catch (e) {}
+    }
+  }
 
   if (carObj) {
     carObj.position.set(carState.x, carState.y + CAR_LIFT, carState.z);
@@ -141,6 +175,7 @@ function animate() {
     }
   }
   hudSpeed.textContent = Math.round(Math.abs(carState.speed) * 3.6);
+  hud.update(carState, coinCount, trial);
   if (world) world.update(dt, 0);
   if (world) { sun.target.position.set(carState.x, 0, carState.z); sun.target.updateMatrixWorld(); }
   updateCamera(dt);

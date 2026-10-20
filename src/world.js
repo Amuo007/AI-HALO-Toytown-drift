@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { loadModel, cloneModel, townUrl } from './assets.js';
-import { T as TSCALE, terrainHeight } from './village.js';
+import { loadModel, cloneModel, townUrl, toyUrl } from './assets.js';
+import { T as TSCALE, K as KSCALE, terrainHeight } from './village.js';
 
 // Build the whole static world from a layout. Returns handles for animation + collision.
 export async function buildWorld(scene, layout) {
@@ -116,6 +116,54 @@ export async function buildWorld(scene, layout) {
   scene.add(wheel);
 
   const groundMeshes = [terrain, staticMesh];
+
+  // ---- stunt park (toy-kit track pieces, merged) ----
+  const parkMeshes = [];
+  const gateObjs = [];
+  if (layout.park) {
+    const parkNames = [...new Set(layout.park.pieces.map(p => p.model)), 'gate', 'gate-finish'];
+    const parkEntries = {};
+    await Promise.all(parkNames.map(async n => { parkEntries[n] = await loadModel(toyUrl(n)); }));
+    const parkGeoms = [];
+    let parkMat = null;
+    const bake = (p, scale) => {
+      const entry = parkEntries[p.model];
+      if (!entry) return;
+      const obj = cloneModel(entry);
+      obj.position.set(p.x, (p.y || 0) + 2, p.z);
+      obj.rotation.y = p.rot || 0;
+      obj.scale.setScalar(scale);
+      obj.updateMatrixWorld(true);
+      obj.traverse(o => {
+        if (o.isMesh) {
+          const g = o.geometry.clone();
+          g.applyMatrix4(o.matrixWorld);
+          parkGeoms.push(g);
+          if (!parkMat) parkMat = o.material;
+        }
+      });
+    };
+    for (const p of layout.park.pieces) bake(p, KSCALE);
+    const mergedPark = mergeGeometries(parkGeoms, false);
+    parkGeoms.forEach(g => g.dispose());
+    const parkMesh = new THREE.Mesh(mergedPark, parkMat);
+    parkMesh.castShadow = true;
+    parkMesh.receiveShadow = true;
+    scene.add(parkMesh);
+    parkMeshes.push(parkMesh);
+    // gates stand on the ground
+    for (const key of ['start', 'finish']) {
+      const g = layout.park.gates[key];
+      const obj = cloneModel(parkEntries[key === 'start' ? 'gate' : 'gate-finish']);
+      obj.position.set(g.x, 0, g.z);
+      obj.rotation.y = g.rot;
+      obj.scale.setScalar(KSCALE);
+      obj.traverse(o => { if (o.isMesh) o.castShadow = true; });
+      scene.add(obj);
+      gateObjs.push(obj);
+    }
+  }
+  groundMeshes.push(...parkMeshes);
 
   function update(dt, night) {
     rotor.rotation.x += dt * 0.7;
