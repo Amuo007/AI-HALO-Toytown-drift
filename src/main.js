@@ -9,10 +9,13 @@ import { createHUD } from './hud.js';
 import { createItemState, checkPickups, createTrial, stepTrial } from './collectibles.js';
 import { createSmoke } from './fx.js';
 import { initAudio, setEngine, sfx } from './audio.js';
+import { createAutopilot } from './autopilot.js';
 
 const params = new URLSearchParams(location.search);
 const demo = params.get('demo') === '1';
 const demoView = params.get('view') || 'car';
+const auto = params.get('auto') === '1';
+let autoStarted = false;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -61,6 +64,7 @@ scene.add(ground);
 
 // --- world ---
 const layout = generateWorld(7);
+const autopilot = auto && layout.park ? createAutopilot(layout.park.centerline) : null;
 let world = null;
 const smoke = createSmoke(scene);
 let prevImpact = 0;
@@ -212,8 +216,16 @@ function updateCamera(dt) {
 function animate() {
   requestAnimationFrame(animate);
   const dt = Math.min(clock.getDelta(), 0.05);
+  if (auto && !autoStarted && carObj && world) {
+    carState = createCarState(stats, -40, 100, Math.PI / 2);
+    autoStarted = true;
+  }
+  if (!window.__ready && carObj && world && collectibles) {
+    window.__ready = true;
+    Object.defineProperty(window, '__car', { get: () => carState });
+  }
   if (started && !paused) {
-    const inp = sampleInput();
+    const inp = autopilot && autoStarted ? autopilot(carState) : sampleInput();
     const prev = { x: carState.x, z: carState.z };
     stepCar(carState, stats, inp, dt, groundHeight);
     resolveCollisions(carState, 0.9, colliders);

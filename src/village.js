@@ -249,7 +249,13 @@ export function buildPark() {
   collectibles.push({ type: 'box', x: -22, z: 138.4 }, { type: 'box', x: -50, z: 118 });
   collectibles.push({ type: 'banana', x: -30, z: 100 }, { type: 'banana', x: -50, z: 128 });
   const rect = { x0: -64, x1: 12, z0: 92, z1: 150 };
-  return { pieces, gates, collectibles, rect };
+  const centerline = [
+    [-40, 100], [-24, 100], [-12, 100], [-6, 101.5], [-3.2, 104.5],
+    [-2.8, 112], [-2.8, 122], [-2.8, 130], [-4.5, 134.5], [-8, 137.5],
+    [-16, 138.4], [-28, 138.4], [-38, 138.4], [-45, 137], [-48.5, 134],
+    [-50, 126], [-50, 116], [-50, 108], [-48.5, 103.5], [-45.5, 100.8],
+  ];
+  return { pieces, gates, collectibles, rect, centerline };
 }
 
 // Terrain height (analytic, used for the ground mesh and for flatness checks).

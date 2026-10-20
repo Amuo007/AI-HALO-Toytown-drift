@@ -4,7 +4,9 @@ An open-world toy-town driving game that runs entirely in the browser. Pick one 
 eight toy cars, cruise a procedurally generated village, and chase lap times on a
 stunt-park circuit — all rendered with Three.js from Kenney's CC0 art packs.
 
-![Toytown Drift](shots/preview.png)
+![Toytown Drift gameplay](shots/preview.gif)
+
+*(Full-quality clip: [shots/preview.mp4](shots/preview.mp4))*
 
 ## Running it
 
