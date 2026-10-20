@@ -67,9 +67,10 @@ buildWorld(scene, layout).then(async w => {
 // --- car ---
 const CAR_SCALE = 2.0;          // toy kit is small; scale up to village scale
 const CAR_LIFT = 0.13 * CAR_SCALE; // model origin sits above wheel bottom
-const stats = VEHICLES[0];
+let stats = VEHICLES[0];
 let carObj = null, wheels = {};
-const carState = createCarState(stats, layout.spawn.x, layout.spawn.z, layout.spawn.heading);
+let carState = createCarState(stats, layout.spawn.x, layout.spawn.z, layout.spawn.heading);
+let started = demo, paused = false;
 
 const raycaster = new THREE.Raycaster();
 const down = new THREE.Vector3(0, -1, 0);
@@ -80,15 +81,22 @@ function groundHeight(x, z) {
   return hits.length ? hits[0].point.y : 0;
 }
 
-loadModel(toyUrl(stats.id)).then(entry => {
-  carObj = cloneModel(entry);
-  carObj.scale.setScalar(CAR_SCALE);
-  carObj.traverse(o => { if (o.isMesh) { o.castShadow = true; } });
-  carObj.traverse(o => {
-    if (o.name && o.name.startsWith('wheel-')) wheels[o.name] = o;
+function loadCar(v) {
+  stats = v;
+  const p = loadModel(toyUrl(v.id)).then(entry => {
+    if (carObj) { scene.remove(carObj); }
+    wheels = {};
+    carObj = cloneModel(entry);
+    carObj.scale.setScalar(CAR_SCALE);
+    carObj.traverse(o => { if (o.isMesh) { o.castShadow = true; } });
+    carObj.traverse(o => {
+      if (o.name && o.name.startsWith('wheel-')) wheels[o.name] = o;
+    });
+    scene.add(carObj);
   });
-  scene.add(carObj);
-});
+  return p;
+}
+loadCar(stats);
 
 const colliders = []; // filled by world builder later
 
@@ -99,8 +107,55 @@ window.addEventListener('keyaction', e => { if (e.detail === 'KeyC') orbitMode =
 
 const clock = new THREE.Clock();
 const hudSpeed = document.getElementById('speed');
-document.getElementById('hud').classList.remove('hidden');
-if (demo) document.getElementById('garage').classList.add('hidden');
+const hudEl = document.getElementById('hud');
+const garageEl = document.getElementById('garage');
+const pauseEl = document.getElementById('pause');
+if (demo) { garageEl.classList.add('hidden'); hudEl.classList.remove('hidden'); }
+
+// --- garage ---
+let selected = 0;
+const carlist = document.getElementById('carlist');
+VEHICLES.forEach((v, i) => {
+  const card = document.createElement('div');
+  card.className = 'carcard' + (i === 0 ? ' sel' : '');
+  const bar = (lbl, val) => `<div class="bar"><i style="width:${Math.round(val * 100)}%"></i></div><div class="lbl">${lbl}</div>`;
+  card.innerHTML = `<div class="swatch" style="--c:${v.color}"></div><div class="nm">${v.name}</div>` +
+    bar('Speed', v.maxSpeed / 38) + bar('Accel', v.accel / 24) + bar('Grip', v.grip / 9);
+  card.onclick = () => {
+    selected = i;
+    carlist.querySelectorAll('.carcard').forEach((c, j) => c.classList.toggle('sel', j === i));
+  };
+  carlist.appendChild(card);
+});
+
+function resetRun() {
+  carState = createCarState(stats, layout.spawn.x, layout.spawn.z, layout.spawn.heading);
+  coinCount = 0;
+  for (const it of items) it.taken = false;
+  trial.phase = 'idle'; trial.t = 0; trial.crossedStart = false;
+}
+function startGame() {
+  loadCar(VEHICLES[selected]).then(() => {
+    resetRun();
+    garageEl.classList.add('hidden');
+    pauseEl.classList.add('hidden');
+    hudEl.classList.remove('hidden');
+    started = true; paused = false;
+  });
+}
+document.getElementById('startbtn').onclick = startGame;
+document.getElementById('resumebtn').onclick = () => { paused = false; pauseEl.classList.add('hidden'); };
+document.getElementById('changecarbtn').onclick = () => {
+  paused = true;
+  pauseEl.classList.add('hidden');
+  garageEl.classList.remove('hidden');
+};
+document.getElementById('restartbtn').onclick = () => { resetRun(); paused = false; pauseEl.classList.add('hidden'); };
+window.addEventListener('keyaction', e => {
+  if (e.detail !== 'Escape' || demo || !started) return;
+  paused = !paused;
+  pauseEl.classList.toggle('hidden', !paused);
+});
 
 function updateCamera(dt) {
   if (demo && demoView === 'village') {
@@ -142,26 +197,28 @@ function updateCamera(dt) {
 function animate() {
   requestAnimationFrame(animate);
   const dt = Math.min(clock.getDelta(), 0.05);
-  const inp = sampleInput();
-  const prev = { x: carState.x, z: carState.z };
-  stepCar(carState, stats, inp, dt, groundHeight);
-  resolveCollisions(carState, 0.9, colliders);
+  if (started && !paused) {
+    const inp = sampleInput();
+    const prev = { x: carState.x, z: carState.z };
+    stepCar(carState, stats, inp, dt, groundHeight);
+    resolveCollisions(carState, 0.9, colliders);
 
-  // collectibles
-  if (collectibles) {
-    for (const ev of checkPickups(carState, items)) {
-      if (ev.type === 'coin' || ev.type === 'box') { coinCount += ev.points; hud.showBanner('+' + ev.points); }
-      if (ev.type === 'banana') { carState.spinout = 1.1; hud.showBanner('BANANA!'); }
+    // collectibles
+    if (collectibles) {
+      for (const ev of checkPickups(carState, items)) {
+        if (ev.type === 'coin' || ev.type === 'box') { coinCount += ev.points; hud.showBanner('+' + ev.points); }
+        if (ev.type === 'banana') { carState.spinout = 1.1; hud.showBanner('BANANA!'); }
+      }
+      collectibles.update(clock.elapsedTime);
     }
-    collectibles.update(clock.elapsedTime);
-  }
-  // time trial
-  if (layout.park) {
-    const ev = stepTrial(trial, carState, prev, layout.park.gates, dt);
-    if (ev === 'start') hud.showBanner('GO!', 900);
-    if (ev === 'finish') {
-      hud.showBanner('FINISH! ' + trial.best.toFixed(2) + 's');
-      try { localStorage.setItem('toytown-best', String(trial.best)); } catch (e) {}
+    // time trial
+    if (layout.park) {
+      const ev = stepTrial(trial, carState, prev, layout.park.gates, dt);
+      if (ev === 'start') hud.showBanner('GO!', 900);
+      if (ev === 'finish') {
+        hud.showBanner('FINISH! ' + trial.best.toFixed(2) + 's');
+        try { localStorage.setItem('toytown-best', String(trial.best)); } catch (e) {}
+      }
     }
   }
 
