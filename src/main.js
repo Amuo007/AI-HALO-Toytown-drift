@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { loadModel, cloneModel, toyUrl } from './assets.js';
 import { VEHICLES, createCarState, stepCar, resolveCollisions } from './car.js';
 import { sampleInput } from './input.js';
+import { generateWorld } from './village.js';
+import { buildWorld } from './world.js';
 
 const params = new URLSearchParams(location.search);
 const demo = params.get('demo') === '1';
@@ -27,8 +29,8 @@ const sun = new THREE.DirectionalLight(0xfff2d8, 2.4);
 sun.position.set(60, 90, 40);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
-sun.shadow.camera.left = -140; sun.shadow.camera.right = 140;
-sun.shadow.camera.top = 140; sun.shadow.camera.bottom = -140;
+sun.shadow.camera.left = -90; sun.shadow.camera.right = 90;
+sun.shadow.camera.top = 90; sun.shadow.camera.bottom = -90;
 sun.shadow.camera.far = 400;
 sun.shadow.bias = -0.0006;
 scene.add(sun, sun.target);
@@ -39,20 +41,31 @@ const groundMat = new THREE.MeshLambertMaterial({ color: 0x7fb069 });
 const ground = new THREE.Mesh(new THREE.PlaneGeometry(900, 900), groundMat);
 ground.rotation.x = -Math.PI / 2;
 ground.receiveShadow = true;
+ground.visible = false; // replaced by world terrain
 scene.add(ground);
+
+// --- world ---
+const layout = generateWorld(7);
+let world = null;
+buildWorld(scene, layout).then(w => {
+  world = w;
+  groundMeshes.length = 0;
+  groundMeshes.push(...w.groundMeshes);
+  colliders.push(...w.colliders);
+});
 
 // --- car ---
 const CAR_SCALE = 2.0;          // toy kit is small; scale up to village scale
 const CAR_LIFT = 0.13 * CAR_SCALE; // model origin sits above wheel bottom
 const stats = VEHICLES[0];
 let carObj = null, wheels = {};
-const carState = createCarState(stats, 0, 0, 0);
+const carState = createCarState(stats, layout.spawn.x, layout.spawn.z, layout.spawn.heading);
 
 const raycaster = new THREE.Raycaster();
 const down = new THREE.Vector3(0, -1, 0);
 const groundMeshes = [ground];
 function groundHeight(x, z) {
-  raycaster.set(new THREE.Vector3(x, 60, z), down);
+  raycaster.set(new THREE.Vector3(x, 80, z), down);
   const hits = raycaster.intersectObjects(groundMeshes, false);
   return hits.length ? hits[0].point.y : 0;
 }
@@ -80,6 +93,23 @@ document.getElementById('hud').classList.remove('hidden');
 if (demo) document.getElementById('garage').classList.add('hidden');
 
 function updateCamera(dt) {
+  if (demo && demoView === 'village') {
+    const t = clock.elapsedTime * 0.05;
+    camera.position.set(Math.sin(t) * 70, 45, Math.cos(t) * 70);
+    camera.lookAt(0, 0, 0);
+    return;
+  }
+  if (demo && demoView === 'windmill') {
+    const a = layout.windmill.rot;
+    camera.position.set(layout.windmill.x + Math.cos(a) * 26, layout.hill.h + 10, layout.windmill.z - Math.sin(a) * 26);
+    camera.lookAt(layout.windmill.x, layout.hill.h + 8, layout.windmill.z);
+    return;
+  }
+  if (demo && demoView === 'watermill') {
+    camera.position.set(layout.stream.x - 18, 8, layout.watermill.z + 16);
+    camera.lookAt(layout.stream.x, 2, layout.watermill.z);
+    return;
+  }
   if (!carObj) return;
   if (orbitMode) {
     orbitAngle += dt * 0.4;
@@ -111,6 +141,8 @@ function animate() {
     }
   }
   hudSpeed.textContent = Math.round(Math.abs(carState.speed) * 3.6);
+  if (world) world.update(dt, 0);
+  if (world) { sun.target.position.set(carState.x, 0, carState.z); sun.target.updateMatrixWorld(); }
   updateCamera(dt);
   renderer.render(scene, camera);
 }

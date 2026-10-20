@@ -12,7 +12,7 @@ export function townUrl(name) { return TOWN_DIR + name + '.glb'; }
 
 export function loadGLB(url) {
   if (!cache.has(url)) {
-    cache.set(url, new Promise((res, rej) => loader.load(url, res, undefined, rej)));
+    cache.set(url, new Promise((res, rej) => new GLTFLoader().load(url, res, undefined, rej)));
   }
   return cache.get(url);
 }
