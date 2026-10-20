@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Toytown Drift</title>
+<style>
+  html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#87b5e0;font-family:'Segoe UI',system-ui,sans-serif;}
+  #game{position:fixed;inset:0;}
+  canvas{display:block;}
+  .hidden{display:none !important;}
+
+  /* HUD */
+  #hud{position:fixed;inset:0;pointer-events:none;color:#fff;text-shadow:0 2px 6px rgba(0,0,0,.45);}
+  #speedo{position:absolute;right:24px;bottom:20px;text-align:right;}
+  #speedo .val{font-size:56px;font-weight:800;line-height:1;}
+  #speedo .unit{font-size:16px;opacity:.85;}
+  #coinbox{position:absolute;left:24px;top:18px;font-size:26px;font-weight:700;display:flex;gap:8px;align-items:center;}
+  #coinbox .dot{width:22px;height:22px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#ffe27a,#e8a91c 70%);border:2px solid #b57f10;}
+  #timerbox{position:absolute;left:50%;top:14px;transform:translateX(-50%);font-size:30px;font-weight:800;font-variant-numeric:tabular-nums;background:rgba(20,30,50,.35);padding:6px 22px;border-radius:12px;}
+  #timerbox.best{background:rgba(20,120,60,.5);}
+  #minimap{position:absolute;right:20px;top:16px;width:170px;height:170px;border-radius:14px;background:rgba(25,40,60,.55);border:2px solid rgba(255,255,255,.35);}
+  #hint{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);font-size:14px;opacity:.8;background:rgba(20,30,50,.35);padding:4px 14px;border-radius:10px;}
+  #banner{position:absolute;left:50%;top:34%;transform:translate(-50%,-50%);font-size:64px;font-weight:900;color:#ffe27a;text-shadow:0 4px 0 #b5561c,0 8px 18px rgba(0,0,0,.5);opacity:0;transition:opacity .25s;}
+
+  /* Overlays (garage / pause) */
+  .overlay{position:fixed;inset:0;background:linear-gradient(160deg,#28406b 0%,#152640 100%);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;}
+  .overlay h1{font-size:58px;margin:0;font-weight:900;letter-spacing:2px;color:#ffe27a;text-shadow:0 5px 0 #b5561c;}
+  .overlay h1 span{color:#7fd4ff;}
+  .overlay .sub{opacity:.8;margin-top:-8px;}
+  #garage .cars{display:grid;grid-template-columns:repeat(4,190px);gap:14px;margin-top:6px;}
+  .carcard{background:rgba(255,255,255,.08);border:2px solid rgba(255,255,255,.18);border-radius:14px;padding:12px;cursor:pointer;transition:transform .12s,border-color .12s;text-align:center;}
+  .carcard:hover{transform:translateY(-3px);}
+  .carcard.sel{border-color:#ffe27a;background:rgba(255,226,122,.14);transform:translateY(-3px);}
+  .carcard .swatch{height:56px;border-radius:8px;margin-bottom:8px;background:var(--c);}
+  .carcard .nm{font-weight:800;font-size:16px;}
+  .carcard .bar{height:7px;border-radius:4px;background:rgba(255,255,255,.15);margin:6px 0 2px;position:relative;}
+  .carcard .bar i{position:absolute;inset:0;right:auto;background:#7fd4ff;border-radius:4px;}
+  .carcard .lbl{font-size:10px;opacity:.7;text-align:left;}
+  .btn{pointer-events:auto;background:#ffe27a;color:#5a3208;border:none;font-weight:800;font-size:20px;padding:12px 42px;border-radius:999px;cursor:pointer;box-shadow:0 5px 0 #b57f10;}
+  .btn:hover{filter:brightness(1.06);}
+  .btn.alt{background:#7fd4ff;color:#083b5a;box-shadow:0 5px 0 #2b7ba6;}
+  .keys{font-size:14px;opacity:.75;text-align:center;line-height:1.7;}
+  .keys b{color:#ffe27a;}
+  #pause .menu{display:flex;flex-direction:column;gap:12px;align-items:center;}
+  #credits{position:absolute;bottom:10px;font-size:11px;opacity:.55;}
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+<div id="game"></div>
+
+<div id="hud" class="hidden">
+  <div id="coinbox"><span class="dot"></span><span id="coins">0</span></div>
+  <div id="timerbox" class="hidden"><span id="timer">0.00</span></div>
+  <canvas id="minimap" width="170" height="170"></canvas>
+  <div id="speedo"><div class="val"><span id="speed">0</span></div><div class="unit">km/h</div></div>
+  <div id="hint">WASD / arrows drive &nbsp;·&nbsp; SPACE drift &nbsp;·&nbsp; C camera &nbsp;·&nbsp; Esc menu</div>
+  <div id="banner"></div>
+</div>
+
+<div id="garage" class="overlay">
+  <h1>TOYTOWN <span>DRIFT</span></h1>
+  <div class="sub">Pick your toy, then hit the town!</div>
+  <div class="cars" id="carlist"></div>
+  <button class="btn" id="startbtn">DRIVE!</button>
+  <div class="keys"><b>WASD</b> drive · <b>SPACE</b> handbrake drift · <b>C</b> camera · <b>Esc</b> pause</div>
+  <div id="credits">Cars &amp; village art: Kenney (kenney.nl), CC0</div>
+</div>
+
+<div id="pause" class="overlay hidden">
+  <h1>PAUSED</h1>
+  <div class="menu">
+    <button class="btn" id="resumebtn">Resume</button>
+    <button class="btn alt" id="changecarbtn">Change car</button>
+    <button class="btn alt" id="restartbtn">Restart</button>
+  </div>
+</div>
+
+<script type="module" src="src/main.js"></script>
+</body>
+</html>
