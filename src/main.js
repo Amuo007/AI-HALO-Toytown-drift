@@ -7,6 +7,8 @@ import { buildWorld } from './world.js';
 import { buildCollectibles } from './entities.js';
 import { createHUD } from './hud.js';
 import { createItemState, checkPickups, createTrial, stepTrial } from './collectibles.js';
+import { createSmoke } from './fx.js';
+import { initAudio, setEngine, sfx } from './audio.js';
 
 const params = new URLSearchParams(location.search);
 const demo = params.get('demo') === '1';
@@ -37,7 +39,17 @@ sun.shadow.camera.top = 90; sun.shadow.camera.bottom = -90;
 sun.shadow.camera.far = 400;
 sun.shadow.bias = -0.0006;
 scene.add(sun, sun.target);
-scene.add(new THREE.HemisphereLight(0xcfe2ff, 0x8a9a6a, 1.4));
+const hemi = new THREE.HemisphereLight(0xcfe2ff, 0x8a9a6a, 1.4);
+scene.add(hemi);
+
+// --- day/night cycle ---
+const DAY_LEN = 240;
+const dayParam = parseFloat(params.get('day'));
+let dayT = Number.isFinite(dayParam) ? dayParam : 0.22;
+const skyDay = new THREE.Color(0x87b5e0), skyNight = new THREE.Color(0x0c1330);
+const sunDay = new THREE.Color(0xfff2d8), sunNight = new THREE.Color(0x5a6a9a);
+const tmpSky = new THREE.Color();
+let night = 0;
 
 // --- ground ---
 const groundMat = new THREE.MeshLambertMaterial({ color: 0x7fb069 });
@@ -50,6 +62,8 @@ scene.add(ground);
 // --- world ---
 const layout = generateWorld(7);
 let world = null;
+const smoke = createSmoke(scene);
+let prevImpact = 0;
 const items = createItemState(layout.collectibles);
 const trial = createTrial();
 try { trial.best = parseFloat(localStorage.getItem('toytown-best')) || null; } catch (e) {}
@@ -135,6 +149,7 @@ function resetRun() {
   trial.phase = 'idle'; trial.t = 0; trial.crossedStart = false;
 }
 function startGame() {
+  initAudio();
   loadCar(VEHICLES[selected]).then(() => {
     resetRun();
     garageEl.classList.add('hidden');
@@ -206,8 +221,8 @@ function animate() {
     // collectibles
     if (collectibles) {
       for (const ev of checkPickups(carState, items)) {
-        if (ev.type === 'coin' || ev.type === 'box') { coinCount += ev.points; hud.showBanner('+' + ev.points); }
-        if (ev.type === 'banana') { carState.spinout = 1.1; hud.showBanner('BANANA!'); }
+        if (ev.type === 'coin' || ev.type === 'box') { coinCount += ev.points; hud.showBanner('+' + ev.points); sfx('coin'); }
+        if (ev.type === 'banana') { carState.spinout = 1.1; hud.showBanner('BANANA!'); sfx('banana'); }
       }
       collectibles.update(clock.elapsedTime);
     }
@@ -217,10 +232,31 @@ function animate() {
       if (ev === 'start') hud.showBanner('GO!', 900);
       if (ev === 'finish') {
         hud.showBanner('FINISH! ' + trial.best.toFixed(2) + 's');
+        sfx('finish');
         try { localStorage.setItem('toytown-best', String(trial.best)); } catch (e) {}
       }
     }
+    // drift smoke + engine audio + crash sfx
+    if (carState.drifting && carState.grounded && Math.abs(carState.speed) > 6) {
+      smoke.emit(carState.x - Math.sin(carState.heading) * 0.8, carState.y, carState.z - Math.cos(carState.heading) * 0.8, dt);
+    }
+    if (carState.lastImpact > prevImpact + 0.02) sfx('crash');
+    prevImpact = carState.lastImpact;
+    setEngine(Math.min(1, Math.abs(carState.speed) / stats.maxSpeed), inp.throttle || 0, carState.drifting);
   }
+  smoke.update(dt);
+  // day/night
+  dayT = (dayT + dt / DAY_LEN) % 1;
+  const elev = Math.sin(dayT * Math.PI * 2);
+  const dayF = THREE.MathUtils.clamp(elev * 2.2, 0, 1);
+  night = 1 - dayF;
+  sun.intensity = 0.3 + 2.1 * dayF;
+  sun.color.copy(sunNight).lerp(sunDay, dayF);
+  hemi.intensity = 0.35 + 1.05 * dayF;
+  tmpSky.copy(skyNight).lerp(skyDay, dayF);
+  scene.background.copy(tmpSky);
+  scene.fog.color.copy(tmpSky);
+  sun.position.set(carState.x + Math.cos(dayT * Math.PI * 2) * 70, 25 + elev * 85, carState.z + 35);
 
   if (carObj) {
     carObj.position.set(carState.x, carState.y + CAR_LIFT, carState.z);
@@ -233,7 +269,7 @@ function animate() {
   }
   hudSpeed.textContent = Math.round(Math.abs(carState.speed) * 3.6);
   hud.update(carState, coinCount, trial);
-  if (world) world.update(dt, 0);
+  if (world) world.update(dt, night);
   if (world) { sun.target.position.set(carState.x, 0, carState.z); sun.target.updateMatrixWorld(); }
   updateCamera(dt);
   renderer.render(scene, camera);
